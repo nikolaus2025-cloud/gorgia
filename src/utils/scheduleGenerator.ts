@@ -25,13 +25,9 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
   const weekKey = new Date(weekStartDate);
   weekKey.setHours(0,0,0,0);
   const weekKeyStr = weekKey.toISOString().split('T')[0];
-  const tieBreakerRanks: Record<string, number> = {};
-  const rankedAgents = [...agents].sort((a, b) => {
-    return hashString(a.id + weekKeyStr) - hashString(b.id + weekKeyStr);
-  });
-  rankedAgents.forEach((a, idx) => {
-    tieBreakerRanks[a.id] = idx;
-  });
+  const getRank = (agentId: string, contextKey: string): number => {
+    return hashString(agentId + '|' + weekKeyStr + '|' + contextKey);
+  };
   
   // Initialize weekly stats for each agent
   const weeklyStats: Record<string, AgentWeeklyStats> = {};
@@ -67,7 +63,7 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
     
     // Step 1: Assign Call 9:00-18:00 (exactly 3 agents)
     const call9to18 = shifts.find(s => s.id === 'call-9-18')!;
-    const call9to18Agents = selectAgentsForCallShift(remainingAgents, weeklyStats, 3, tieBreakerRanks);
+    const call9to18Agents = selectAgentsForCallShift(remainingAgents, weeklyStats, 3, (agentId) => getRank(agentId, `call-9-18:${dayOfWeek}`));
     call9to18Agents.forEach(agent => {
       dayAssignments.push(createAssignment(agent.id, call9to18.id, dateStr, dayOfWeek));
       weeklyStats[agent.id].callDays++;
@@ -76,7 +72,7 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
 
     // Step 2: Assign Comments 9:00-18:00 (exactly 1 agent, only if they haven't done comments this week)
     const comments9to18 = shifts.find(s => s.id === 'comments-9-18')!;
-    const commentsAgents = selectAgentsForComments(remainingAgents, weeklyStats, 1, tieBreakerRanks);
+    const commentsAgents = selectAgentsForComments(remainingAgents, weeklyStats, 1, (agentId) => getRank(agentId, `comments-9-18:${dayOfWeek}`));
     commentsAgents.forEach(agent => {
       dayAssignments.push(createAssignment(agent.id, comments9to18.id, dateStr, dayOfWeek));
       weeklyStats[agent.id].writtenDays++;
@@ -91,7 +87,7 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
     const call12to21 = shifts.find(s => s.id === 'call-12-21')!;
     
     // Assign Call 11:00-20:00 (exactly 1 agent)
-    const call11to20Agents = selectAgentsForLateShift(remainingAgents, weeklyStats, 1, tieBreakerRanks);
+    const call11to20Agents = selectAgentsForLateShift(remainingAgents, weeklyStats, 1, (agentId) => getRank(agentId, `call-11-20:${dayOfWeek}`));
     if (call11to20Agents.length >= 1) {
       dayAssignments.push(createAssignment(call11to20Agents[0].id, call11to20.id, dateStr, dayOfWeek));
       weeklyStats[call11to20Agents[0].id].callDays++;
@@ -100,7 +96,7 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
     }
     
     // Assign Call 12:00-21:00 (exactly 1 agent)
-    let call12to21Agents = selectAgentsForLateShift(remainingAgents, weeklyStats, 1, tieBreakerRanks);
+    let call12to21Agents = selectAgentsForLateShift(remainingAgents, weeklyStats, 1, (agentId) => getRank(agentId, `call-12-21:${dayOfWeek}`));
     // If it's Sunday and no eligible agent without a prior late shift exists,
     // fall back to assigning the best available agent (to ensure Sunday coverage).
     if (call12to21Agents.length === 0 && dayOfWeek === 0 && remainingAgents.length > 0) {
@@ -115,7 +111,7 @@ export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Sc
         if (callNeedB !== callNeedA) {
           return callNeedB - callNeedA;
         }
-        return (tieBreakerRanks[a.id] ?? 0) - (tieBreakerRanks[b.id] ?? 0);
+        return getRank(a.id, `fallback-call-12-21:${dayOfWeek}`) - getRank(b.id, `fallback-call-12-21:${dayOfWeek}`);
       });
       call12to21Agents = sortedFallback.slice(0, 1);
     }
@@ -144,7 +140,7 @@ function selectAgentsForCallShift(
   availableAgents: Agent[], 
   weeklyStats: Record<string, AgentWeeklyStats>, 
   count: number,
-  tieBreakerRanks: Record<string, number>
+  getRank: (agentId: string) => number
 ): Agent[] {
   // Prioritize agents who need more call days to reach their target of 3
   const sortedAgents = [...availableAgents].sort((a, b) => {
@@ -162,7 +158,7 @@ function selectAgentsForCallShift(
     if (callNeedB !== callNeedA) {
       return callNeedB - callNeedA;
     }
-    return (tieBreakerRanks[a.id] ?? 0) - (tieBreakerRanks[b.id] ?? 0);
+    return getRank(a.id) - getRank(b.id);
   });
   
   return sortedAgents.slice(0, count);
@@ -172,7 +168,7 @@ function selectAgentsForComments(
   availableAgents: Agent[], 
   weeklyStats: Record<string, AgentWeeklyStats>, 
   count: number,
-  tieBreakerRanks: Record<string, number>
+  getRank: (agentId: string) => number
 ): Agent[] {
   // Only select agents who haven't done comments this week
   const eligibleAgents = availableAgents.filter(agent => 
@@ -195,7 +191,7 @@ function selectAgentsForComments(
     if (writtenNeedB !== writtenNeedA) {
       return writtenNeedB - writtenNeedA;
     }
-    return (tieBreakerRanks[a.id] ?? 0) - (tieBreakerRanks[b.id] ?? 0);
+    return getRank(a.id) - getRank(b.id);
   });
   
   return sortedAgents.slice(0, count);
@@ -205,7 +201,7 @@ function selectAgentsForLateShift(
   availableAgents: Agent[], 
   weeklyStats: Record<string, AgentWeeklyStats>, 
   count: number,
-  tieBreakerRanks: Record<string, number>
+  getRank: (agentId: string) => number
 ): Agent[] {
   // Only select agents who haven't had a late shift this week
   const eligibleAgents = availableAgents.filter(agent => 
@@ -228,7 +224,7 @@ function selectAgentsForLateShift(
     if (callNeedB !== callNeedA) {
       return callNeedB - callNeedA;
     }
-    return (tieBreakerRanks[a.id] ?? 0) - (tieBreakerRanks[b.id] ?? 0);
+    return getRank(a.id) - getRank(b.id);
   });
   
   return sortedAgents.slice(0, count);
