@@ -20,13 +20,13 @@ function hashString(input: string): number {
   return Math.abs(hash);
 }
 
-export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date): Schedule {
+export function generateWeeklySchedule(agents: Agent[], weekStartDate: Date, seed: string = ''): Schedule {
   const schedule: Schedule = {};
   const weekKey = new Date(weekStartDate);
   weekKey.setHours(0,0,0,0);
   const weekKeyStr = weekKey.toISOString().split('T')[0];
   const getRank = (agentId: string, contextKey: string): number => {
-    return hashString(agentId + '|' + weekKeyStr + '|' + contextKey);
+    return hashString(agentId + '|' + weekKeyStr + '|' + contextKey + '|' + seed);
   };
   
   // Initialize weekly stats for each agent

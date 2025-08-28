@@ -75,7 +75,8 @@ function App() {
 
   const generateSchedule = async () => {
     setAppError(null);
-    const newSchedule = generateWeeklySchedule(agents, currentWeekStart);
+    const randomSeed = `${Date.now()}-${Math.random()}`;
+    const newSchedule = generateWeeklySchedule(agents, currentWeekStart, randomSeed);
     setSchedule(newSchedule);
     if (session?.user?.id) {
       try {
